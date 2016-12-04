@@ -1,10 +1,6 @@
-[data structure]
-    waiting_list
-    passenger_list
-
 [shared variables]
-    waiting_list(tid,floor,direction)
-    passenger_list(tid,destination)
+    waiting_list(tid,floor,direction,next)
+    passenger_list(tid,destination,next)
 
 [elevator]
 variables:
@@ -47,7 +43,7 @@ functions:
     }
 
 [person]
-variable:
+variables:
     floor
     direction
     destination
