@@ -1,6 +1,7 @@
 [shared variables]
-    waiting_list(tid,floor,direction,next)
-    passenger_list(tid,destination,next)
+    thread_list(tid)
+    waiting_list(tid,floor,direction)
+    passenger_list(tid,destination)
 
 [elevator]
 variables:
