@@ -256,6 +256,7 @@ void* Elevator(){
     return;
 }
 void* User(){
+    //set user number
     static int nextNumber=1;
     int userNumber=nextNumber++;
 
