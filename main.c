@@ -13,6 +13,7 @@ const int ELEVATOR_SPEED=100000; //in microsecond
 const int ELEVATOR_WAIT_FOR_USER=0; //to leave or enter, in microsecond
 //semaphores
 sem_t elevatorUsage;
+sem_t userNumberSem;
 sem_t waitingListSem,passengerListSem;
 //shared variables
 typedef struct waitingNodePrototype{
@@ -40,6 +41,7 @@ inline float nextTime(float rate);
 inline void CreateElevatorThread();
 inline void CreateNewUserThread();
 void* Elevator();
+int isFarther(int,int,int);
 void* User();
 
 int main(int argc,char* argv[]){
@@ -49,7 +51,7 @@ int main(int argc,char* argv[]){
     else if(argc>2){
         printf("Wrong Usage\n");
         printf("Argument: [rate=%.2f]\n",DEFAULT_RATE);
-        printf("rate - number of users appearing every second\n");
+        printf("rate - average number of new users per second\n");
         return 0;
     }
     else
@@ -58,6 +60,7 @@ int main(int argc,char* argv[]){
 
     //initialize semaphores and thread attribute
     sem_init(&elevatorUsage,0,0);
+    sem_init(&userNumberSem,0,1);
     sem_init(&waitingListSem,0,1);
     sem_init(&passengerListSem,0,1);
     pthread_attr_init(&threadAttribute);
@@ -66,8 +69,8 @@ int main(int argc,char* argv[]){
 
     while(1){
         float waitTime=nextTime(rate)*1000000;
-        if(waitTime/1000000>=1)
-            usleep((int)waitTime/1000000*1000000);
+        if(waitTime/1000000>=1) //if more than 1 sec
+            usleep((int)waitTime/1000000*1000000); //sleep through integer seconds
         struct timespec last;
         clock_gettime(CLOCK_REALTIME,&last);
         waitTime-=(int)waitTime/1000000*1000000;
@@ -104,7 +107,7 @@ void* Elevator(){
         //wait for any user
         sem_wait(&waitingListSem); //critical section-waitingList
             if(waitingListHead==NULL)
-                printf("(電梯閒置)\n");
+                printf(" (電梯閒置)\n");
         sem_post(&waitingListSem);
         sem_wait(&elevatorUsage);
         sem_post(&elevatorUsage);
@@ -127,7 +130,7 @@ void* Elevator(){
                 aWaitingNode=aWaitingNode->next;
             }
         sem_post(&waitingListSem);
-        //choose the nearer one, same then more users, same then random one
+        //choose the nearer one of highest and lowest floor, same then with more users in between, same then random one
         if(lowestFloor!=atFloor || highestFloor!=atFloor){
             if(lowestFloor==atFloor)
                 toFloor=highestFloor;
@@ -149,10 +152,28 @@ void* Elevator(){
             }
         }
         if(toFloor!=atFloor)
-            printf("(電梯前往 %dF)\n",toFloor);
+            printf(" (電梯前往 %dF)\n",toFloor);
 
-        //go to destination by 1 floor
+        //operation session
         while(1){
+            //when elevator has direction, overwrite if there is user waiting at farther floor
+            if(toFloor-atFloor!=0){
+                int destinationChanged=0;
+                //scan waitingList
+                sem_wait(&waitingListSem); //critical section-waitingList
+                    waitingNode* aWaitingNode=waitingListHead;
+                    while(aWaitingNode!=NULL){
+                        if(isFarther(aWaitingNode->atFloor,toFloor,toFloor-atFloor)){
+                            toFloor=aWaitingNode->atFloor;
+                            destinationChanged=1;
+                        }
+                        aWaitingNode=aWaitingNode->next;
+                    }
+                sem_post(&waitingListSem);
+                if(destinationChanged)
+                    printf(" (電梯改為前往 %dF)\n",toFloor);
+            }
+
             //let out users leaving at this floor
             //scan passengerList
             sem_wait(&passengerListSem); //critical section-passengerList
@@ -209,18 +230,18 @@ void* Elevator(){
                             if(toFloor>atFloor){
                                 if(passengerListTail->toFloor>toFloor){
                                     toFloor=passengerListTail->toFloor;
-                                    printf("(電梯改為前往 %dF)\n",toFloor);
+                                    printf(" (電梯改為前往 %dF)\n",toFloor);
                                 }
                             }
                             else if(toFloor<atFloor){
                                 if(passengerListTail->toFloor<toFloor){
                                     toFloor=passengerListTail->toFloor;
-                                    printf("(電梯改為前往 %dF)\n",toFloor);
+                                    printf(" (電梯改為前往 %dF)\n",toFloor);
                                 }
                             }
                             else{
                                 toFloor=passengerListTail->toFloor;
-                                printf("(電梯前往 %dF)\n",toFloor);
+                                printf(" (電梯前往 %dF)\n",toFloor);
                             }
                         sem_post(&passengerListSem);
             sem_wait(&waitingListSem);
@@ -255,10 +276,18 @@ void* Elevator(){
     }
     return;
 }
+int isFarther(int newDesitnation,int oldDestination,int direction){
+    if(direction>0)
+        return newDesitnation>oldDestination;
+    if(direction<0)
+        return newDesitnation<oldDestination;
+}
 void* User(){
-    //set user number
-    static int nextNumber=1;
-    int userNumber=nextNumber++;
+    //get unique user number
+    sem_wait(&userNumberSem); //critical section-userNumber
+        static int nextNumber=1;
+        int userNumber=nextNumber++;
+    sem_post(&userNumberSem);
 
     //set random atFloor and toFloor
     int atFloor=rand()%MAX_FLOOR+1,toFloor=rand()%MAX_FLOOR+1;
@@ -330,7 +359,7 @@ void* User(){
         thisPassenger->elevatorIsHere=&elevatorIsHere;
         thisPassenger->previous=previousPassengerNode;
         thisPassenger->next=NULL;
-        printf("(使用者 %d 進入電梯，按了 %dF 鍵)\n",userNumber,toFloor);
+        printf(" (使用者 %d 進入電梯，按了 %dF 鍵)\n",userNumber,toFloor);
     sem_post(&passengerListSem);
 
     //wait for elevator to arrive
@@ -348,7 +377,7 @@ void* User(){
         else
             thisPassenger->next->previous=thisPassenger->previous;
         free(thisPassenger);
-        printf("(使用者 %d 離開電梯)\n",userNumber);
+        printf(" (使用者 %d 離開電梯)\n",userNumber);
     sem_post(&passengerListSem);
 
     sem_destroy(&elevatorIsHere);
